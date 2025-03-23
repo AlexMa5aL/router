@@ -61,12 +61,12 @@ fi
 chmod +x /tmp/tun2socks
 
 # Step 6: Check for existing config in /etc/config/network then add entry
-if ! grep -q "config interface 'tunnel'" /etc/config/network; then
+if ! grep -q "config interface 'tun0'" /etc/config/network; then
 echo "
-config interface 'tunnel'
-    option device 'tun1'
+config interface 'tun0'
+    option device 'tun0'
     option proto 'static'
-    option ipaddr '172.16.10.1'
+    option ipaddr '172.16.250.1'
     option netmask '255.255.255.252'
 " >> /etc/config/network
     echo -e '\033[0;32m added entry into /etc/config/network \033[0m'
@@ -77,21 +77,20 @@ echo 'found entry into /etc/config/network'
 if ! grep -q "option name 'proxy'" /etc/config/firewall; then 
 echo "
 config zone
-    option name 'proxy'
-    list network 'tunnel'
-    option forward 'REJECT'
-    option output 'ACCEPT'
-    option input 'REJECT'
-    option masq '1'
-    option mtu_fix '1'
-    option device 'tun1'
-    option family 'ipv4'
+        option name 'tun'
+        option forward 'REJECT'
+        option output 'ACCEPT'
+        option input 'REJECT'
+        option masq '1'
+        option mtu_fix '1'
+        option device 'tun0'
+        option family 'ipv4'
 
 config forwarding
-    option name 'lan-proxy'
-    option dest 'proxy'
-    option src 'lan'
-    option family 'ipv4'
+        option name 'lan-tun'
+        option dest 'tun'
+        option src 'lan'
+        option family 'ipv4'
 " >> /etc/config/firewall
     echo -e '\033[0;32m added entry into /etc/config/firewall \033[0m'
 fi
@@ -140,15 +139,17 @@ cat <<EOL > /etc/init.d/tun2socks
 USE_PROCD=1
 
 # starts after network starts
-START=69
+START=40
 # stops before networking stops
 STOP=89
 
-#PROG=/usr/bin/tun2socks
-#IF="tun1"
-#OUTLINE_CONFIG="$OUTLINECONF"
-#LOGLEVEL="warning"
-#BUFFER="64kb"
+PROG=/usr/bin/tun2socks
+IF="tun0"
+PROTO="$PROTO"
+METHOD_USER="$METHOD/USER"
+PASS="$PASS"
+HOST="$HOST"
+PORT="$PORT"
 
 #Check for tun2socks then download tun2socks binary from GitHub to RAM
 before_start() {
@@ -202,13 +203,12 @@ start_service() {
         exit 1
     fi
 	
-    procd_open_instance
-    procd_set_param user root
-    procd_set_param command /tmp/tun2socks -device tun1 -tcp-rcvbuf 64kb -tcp-sndbuf 64kb  -proxy "$OUTLINECONF" -loglevel "warning"
-    procd_set_param stdout 1
-    procd_set_param stderr 1
-    procd_set_param respawn \${respawn_threshold:-3600} \${respawn_timeout:-5} \${respawn_retry:-5}
-    procd_close_instance
+        procd_open_instance
+        procd_set_param command "$PROG" -device "$IF" -proxy "$PROTO"://"$METHOD_USER":"$PASS"@"$HOST":"$PORT"
+        procd_set_param stdout 1
+        procd_set_param stderr 1
+        procd_set_param respawn ${respawn_threshold:-3600} ${respawn_timeout:-5} ${respawn_retry:-5}
+        procd_close_instance
     ip route add "$OUTLINEIP" via "$DEFGW" #Adds route to OUTLINE Server
 	echo -e '\033[0;32m route to Outline Server added \033[0m'
     echo -e "\033[0;32m tun2socks is working! \033[0m"
